@@ -12,14 +12,19 @@ This runs an arbitrary config file. Results are output to the `outputs/` directo
 import argparse
 import json
 import os
+import platform
 import re
+import socket
 import sys
+import time
 
 from jsonschema import ValidationError
+from pathlib import Path
 
 import armory
 from armory import arguments, paths
 from armory.configuration import load_global_config, save_config
+from armory.docker.management import ArmoryInstance, ManagementInstance
 from armory.eval import Evaluator
 import armory.logs
 from armory.logs import log
@@ -718,6 +723,108 @@ def exec(command_args, prog, description):
     sys.exit(exit_code)
 
 
+CARLA_USER = "carla"
+CARLA_SERVER_TIMEOUT = 20
+
+def collect(command_args, prog, description):
+    usage = f"armory collect <docker image> [--config]"
+    parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
+    _debug(parser)
+    _use_gpu(parser)
+    _no_gpu(parser)
+    _gpus(parser)
+    _root(parser)
+    parser.add_argument(
+        "--config",
+        type=str,
+        help="CARLA simulation's configuration file",
+    )
+    parser.add_argument(
+        "--annotation_format",
+        default="kwcoco",
+        type=str,
+        help="Annotation format - choose between 'kwcoco', 'mots_txt' or 'mots_png'",
+    )
+    parser.add_argument(
+        "--categories",
+        nargs="+",
+        default=["Pedestrian", "Vehicle", "TrafficLight"],
+        type=str,
+        help="Categories used to generate annotation.",
+    )
+
+    args = parser.parse_args(command_args)
+    armory.logs.update_filters(args.log_level, args.debug)
+
+    # setup instance
+    if args.use_gpu:
+        kwargs = dict(runtime="nvidia")
+    else:
+        kwargs = dict(runtime="runc")
+    
+    kwargs["image_name"] = armory.docker.images.IMAGE_MAP["carla-sim"]
+
+    manager = ManagementInstance(**kwargs)
+
+    # setup env variables
+    extra_env_vars = dict()
+    if args.use_gpu:
+        if args.gpus is not None:
+            extra_env_vars["NVIDIA_VISIBLE_DEVICES"] = args.gpus
+    
+    # start instance
+    runner = manager.start_armory_instance(
+        envs=extra_env_vars,
+        ports=None,
+        user=CARLA_USER,
+    )
+
+    # start CARLA server
+    port = 64743 #TODO
+    carla_command = f'/bin/bash -c "/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port={port} -quality-level=Epic"'
+
+    exit_code = runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
+
+    # wait the server to start
+    runner.docker_container.reload()
+    ip_address = runner.docker_container.attrs['NetworkSettings']['IPAddress']
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    start_time = time.time()
+
+    # here is verified that the CARLA server's port is open
+    while sock.connect_ex((ip_address, port)) != 0:
+        time.sleep(1)
+        log.info(f"Waiting for CARLA server at {ip_address}:{port}.")
+
+        elapsed_time = time.time() - start_time
+        if elapsed_time > CARLA_SERVER_TIMEOUT:
+            log.error(f"Timeout reached when starting CARLA server")
+            sys.exit(1)
+    
+    log.info("CARLA server started.")
+
+    # verify config file
+    simulation_config = Path(args.config)
+    if not simulation_config.exists():
+        log.error(f"Simulation config '{simulation_config}' does not exits")
+        sys.exit(1)
+
+    # run data saver tool
+    tm_port = port + 2
+    uuid = 123456789 # TODO
+    output_dir = Path.home() / Path(f".armory/datasets/carla/{uuid}")
+    log.info(f"OUTPUT: {output_dir}")
+    collector_command = f'carla_data_saver --config-dir={simulation_config.parent} --config-name={simulation_config.name} context.client_params.host={ip_address} context.client_params.port={port} context.simulation_params.traffic_manager_port={tm_port} hydra.run.dir="{output_dir}"'
+
+    log.info("Data collection started.")
+    exit_code = os.system(collector_command)
+
+    # clean up
+    manager.stop_armory_instance(runner)
+    sys.exit(exit_code)
+
+
 # command, (function, description)
 PROGRAM = "armory"
 COMMANDS = {
@@ -730,6 +837,13 @@ COMMANDS = {
     "launch": (launch, "launch a given docker container in armory"),
     "exec": (exec, "run a single exec command in the container"),
 }
+
+# add CARLA commands if its tools are installed
+CARLA_DATAGEN_TOOLS_REQ_VERSION = ('3', '8')
+python_version = platform.python_version_tuple()
+
+if python_version[0] == CARLA_DATAGEN_TOOLS_REQ_VERSION[0] and python_version[1] == CARLA_DATAGEN_TOOLS_REQ_VERSION[1]:
+    COMMANDS["collect"] = (collect, "run CARLA datagen tools")
 
 
 def usage():

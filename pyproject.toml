@@ -41,6 +41,7 @@ dependencies = [
     "PyYAML",
     "requests",
     "toml",
+    'carla_datagen_toolkit @ git+https://github.com/intel-sandbox/carla-datagen-toolkit.git@8ccb659d3d55d56104fae619742a81b420526664 ; python_version == "3.8"',
 ]
 
 [project.urls]

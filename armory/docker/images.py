@@ -15,6 +15,7 @@ log.trace(f"armory.__version__: {armory.__version__}")
 TAG = version.to_docker_tag(armory.__version__)
 ARMORY_IMAGE_NAME = f"twosixarmory/armory:{TAG}"
 DEEPSPEECH_IMAGE_NAME = f"twosixarmory/pytorch-deepspeech:{TAG}"
+CARLA_SIM_IMAGE_NAME = "carlasim/carla:0.9.13"
 
 IMAGE_MAP = {
     "armory": ARMORY_IMAGE_NAME,
@@ -22,6 +23,7 @@ IMAGE_MAP = {
     "pytorch": ARMORY_IMAGE_NAME,
     "carla-mot": ARMORY_IMAGE_NAME,
     "pytorch-deepspeech": DEEPSPEECH_IMAGE_NAME,
+    "carla-sim": CARLA_SIM_IMAGE_NAME,
 }
 
 
