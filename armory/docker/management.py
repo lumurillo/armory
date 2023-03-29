@@ -61,7 +61,7 @@ class ArmoryInstance(object):
 
         log.info(f"ARMORY Instance {self.docker_container.short_id} created.")
 
-    def exec_cmd(self, cmd: str, user="", expect_sentinel=True) -> int:
+    def exec_cmd(self, cmd: str, user="", expect_sentinel=True, detach=False) -> int:
         # We would like to check the return code to see if the command ran cleanly,
         #  but `exec_run()` cannot both return the code and stream logs
         # https://docker-py.readthedocs.io/en/stable/containers.html#docker.models.containers.Container.exec_run
@@ -72,6 +72,7 @@ class ArmoryInstance(object):
             stream=True,
             tty=True,
             user=user,
+            detach=detach,
         )
 
         # the sentinel should be the last output from the container
