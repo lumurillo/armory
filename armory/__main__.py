@@ -729,7 +729,7 @@ CARLA_USER = "carla"
 CARLA_SERVER_TIMEOUT = 20
 
 def collect(command_args, prog, description):
-    usage = f"armory collect <docker image> [--config]"
+    usage = f"armory collect [--config]"
     parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
     _debug(parser)
     _use_gpu(parser)
@@ -740,19 +740,6 @@ def collect(command_args, prog, description):
         "--config",
         type=str,
         help="CARLA simulation's configuration file",
-    )
-    parser.add_argument(
-        "--annotation_format",
-        default="kwcoco",
-        type=str,
-        help="Annotation format - choose between 'kwcoco', 'mots_txt' or 'mots_png'",
-    )
-    parser.add_argument(
-        "--categories",
-        nargs="+",
-        default=["Pedestrian", "Vehicle", "TrafficLight"],
-        type=str,
-        help="Categories used to generate annotation.",
     )
 
     args = parser.parse_args(command_args)
@@ -814,7 +801,7 @@ def collect(command_args, prog, description):
 
     # run data saver tool
     tm_port = port + 2
-    output_dir = Path.home() / Path(f".armory/datasets/carla/{uuid.uuid4()}")
+    output_dir = Path.home() / f".armory/datasets/carla/{uuid.uuid4()}"
     collector_command = 'carla_data_saver' \
                         f' --config-dir={simulation_config.parent}' \
                         f' --config-name={simulation_config.name}' \
@@ -822,6 +809,8 @@ def collect(command_args, prog, description):
                         f' context.client_params.port={port}' \
                         f' context.simulation_params.traffic_manager_port={tm_port}' \
                         f' hydra.run.dir="{output_dir}"'
+    
+    log.debug(f"Collector command: {collector_command}")
 
     log.info("Data collection started.")
     exit_code = os.system(collector_command)
@@ -829,6 +818,62 @@ def collect(command_args, prog, description):
 
     # clean up
     manager.stop_armory_instance(runner)
+    sys.exit(exit_code)
+
+
+def annotate(command_args, prog, description):
+    usage = f"armory annotate [--annotation-format][--categories][--dataset-path][--dataset-id]"
+    parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
+    _debug(parser)
+
+    parser.add_argument(
+        "--annotation-format",
+        default="kwcoco",
+        type=str,
+        help="Annotation format - choose between 'kwcoco', 'mots_txt' or 'mots_png'",
+    )
+    parser.add_argument(
+        "--categories",
+        nargs="+",
+        default=["Pedestrian", "Vehicle", "TrafficLight"],
+        type=str,
+        help="Categories used to generate annotation.",
+    )
+    parser.add_argument(
+        "--dataset-path",
+        default=Path.home() / ".armory/datasets/carla",
+        type=str,
+        help="Path to dataset to annotate.",
+    )
+    parser.add_argument(
+        "--dataset-id",
+        default="",
+        type=str,
+        help="Dataset identifier.",
+    )
+
+    args = parser.parse_args(command_args)
+    armory.logs.update_filters(args.log_level, args.debug)
+
+    # verify dataset identifer
+    if not args.dataset_id:
+        log.error("No dataset identifier provided.")
+        sys.exit(1)
+
+    # run data saver tool
+    categories = str(args.categories).replace(' ', '')
+    dataset_path = Path(args.dataset_path) / args.dataset_id
+    annotator_command = 'carla_data_annotator' \
+                        f' {args.annotation_format}' \
+                        f' --categories={categories}' \
+                        f' --dataset_parent_dir={dataset_path}'
+    
+    log.debug(f"Annotator command: {annotator_command}")
+
+    log.info("Data annotation started.")
+    exit_code = os.system(annotator_command)
+    log.info("Annotation done.")
+
     sys.exit(exit_code)
 
 
@@ -850,7 +895,8 @@ CARLA_DATAGEN_TOOLS_REQ_VERSION = ('3', '8')
 python_version = platform.python_version_tuple()
 
 if python_version[0] == CARLA_DATAGEN_TOOLS_REQ_VERSION[0] and python_version[1] == CARLA_DATAGEN_TOOLS_REQ_VERSION[1]:
-    COMMANDS["collect"] = (collect, "run CARLA datagen tools")
+    COMMANDS["collect"] = (collect, "run CARLA data collector tool")
+    COMMANDS["annotate"] = (annotate, "run CARLA data annotator tool")
 
 
 def usage():
