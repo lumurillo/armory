@@ -17,9 +17,11 @@ import re
 import socket
 import sys
 import time
+import uuid
 
 from jsonschema import ValidationError
 from pathlib import Path
+from secrets import SystemRandom
 
 import armory
 from armory import arguments, paths
@@ -756,6 +758,12 @@ def collect(command_args, prog, description):
     args = parser.parse_args(command_args)
     armory.logs.update_filters(args.log_level, args.debug)
 
+    # verify config file
+    simulation_config = Path(args.config)
+    if not simulation_config.exists():
+        log.error(f"Simulation config '{simulation_config}' does not exits")
+        sys.exit(1)
+
     # setup instance
     if args.use_gpu:
         kwargs = dict(runtime="nvidia")
@@ -780,7 +788,7 @@ def collect(command_args, prog, description):
     )
 
     # start CARLA server
-    port = 64743 #TODO
+    port = SystemRandom().randrange(49152, 65535)
     carla_command = f'/bin/bash -c "/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port={port} -quality-level=Epic"'
 
     exit_code = runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
@@ -804,21 +812,20 @@ def collect(command_args, prog, description):
     
     log.info("CARLA server started.")
 
-    # verify config file
-    simulation_config = Path(args.config)
-    if not simulation_config.exists():
-        log.error(f"Simulation config '{simulation_config}' does not exits")
-        sys.exit(1)
-
     # run data saver tool
     tm_port = port + 2
-    uuid = 123456789 # TODO
-    output_dir = Path.home() / Path(f".armory/datasets/carla/{uuid}")
-    log.info(f"OUTPUT: {output_dir}")
-    collector_command = f'carla_data_saver --config-dir={simulation_config.parent} --config-name={simulation_config.name} context.client_params.host={ip_address} context.client_params.port={port} context.simulation_params.traffic_manager_port={tm_port} hydra.run.dir="{output_dir}"'
+    output_dir = Path.home() / Path(f".armory/datasets/carla/{uuid.uuid4()}")
+    collector_command = 'carla_data_saver' \
+                        f' --config-dir={simulation_config.parent}' \
+                        f' --config-name={simulation_config.name}' \
+                        f' context.client_params.host={ip_address}' \
+                        f' context.client_params.port={port}' \
+                        f' context.simulation_params.traffic_manager_port={tm_port}' \
+                        f' hydra.run.dir="{output_dir}"'
 
     log.info("Data collection started.")
     exit_code = os.system(collector_command)
+    log.info(f"Output: {output_dir}")
 
     # clean up
     manager.stop_armory_instance(runner)
