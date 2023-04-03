@@ -800,8 +800,9 @@ def collect(command_args, prog, description):
     log.info("CARLA server started.")
 
     # run data saver tool
+    host_default_paths = paths.HostDefaultPaths()
     tm_port = port + 2
-    output_dir = Path.home() / f".armory/datasets/carla/{uuid.uuid4()}"
+    output_dir = Path(host_default_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
     collector_command = 'carla_data_saver' \
                         f' --config-dir={simulation_config.parent}' \
                         f' --config-name={simulation_config.name}' \
@@ -826,6 +827,8 @@ def annotate(command_args, prog, description):
     parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
     _debug(parser)
 
+    host_default_paths = paths.HostDefaultPaths()
+
     parser.add_argument(
         "--annotation-format",
         default="kwcoco",
@@ -841,7 +844,7 @@ def annotate(command_args, prog, description):
     )
     parser.add_argument(
         "--dataset-path",
-        default=Path.home() / ".armory/datasets/carla",
+        default=Path(host_default_paths.dataset_dir) / "carla",
         type=str,
         help="Path to dataset to annotate.",
     )
