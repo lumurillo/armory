@@ -735,7 +735,9 @@ def collect(command_args, prog, description):
     _use_gpu(parser)
     _no_gpu(parser)
     _gpus(parser)
-    _root(parser)
+    _docker_image_optional(parser)
+    _no_docker(parser)    
+
     parser.add_argument(
         "--config",
         type=str,
@@ -751,15 +753,25 @@ def collect(command_args, prog, description):
         log.error(f"Simulation config '{simulation_config}' does not exits")
         sys.exit(1)
 
+    if args.no_docker:
+        host_default_paths = paths.HostDefaultPaths()
+        output_dir = Path(host_default_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
+    else:
+        docker_paths = paths.DockerPaths()
+        output_dir = Path(docker_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
+
+        # create symbolic link to workspace
+        filename_link = Path(os.getcwd()) / simulation_config.name
+        filename_link.symlink_to(simulation_config)
+        simulation_config = Path(docker_paths.cwd) / simulation_config.name
+
     # setup instance
     if args.use_gpu:
         kwargs = dict(runtime="nvidia")
     else:
         kwargs = dict(runtime="runc")
-    
     kwargs["image_name"] = armory.docker.images.IMAGE_MAP["carla-sim"]
-
-    manager = ManagementInstance(**kwargs)
+    carla_manager = ManagementInstance(**kwargs)
 
     # setup env variables
     extra_env_vars = dict()
@@ -768,7 +780,7 @@ def collect(command_args, prog, description):
             extra_env_vars["NVIDIA_VISIBLE_DEVICES"] = args.gpus
     
     # start instance
-    runner = manager.start_armory_instance(
+    carla_runner = carla_manager.start_armory_instance(
         envs=extra_env_vars,
         ports=None,
         user=CARLA_USER,
@@ -778,11 +790,11 @@ def collect(command_args, prog, description):
     port = SystemRandom().randrange(49152, 65535)
     carla_command = f'/bin/bash -c "/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port={port} -quality-level=Epic"'
 
-    exit_code = runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
+    exit_code = carla_runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
 
     # wait the server to start
-    runner.docker_container.reload()
-    ip_address = runner.docker_container.attrs['NetworkSettings']['IPAddress']
+    carla_runner.docker_container.reload()
+    ip_address = carla_runner.docker_container.attrs['NetworkSettings']['IPAddress']
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     start_time = time.time()
@@ -800,9 +812,7 @@ def collect(command_args, prog, description):
     log.info("CARLA server started.")
 
     # run data saver tool
-    host_default_paths = paths.HostDefaultPaths()
     tm_port = port + 2
-    output_dir = Path(host_default_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
     collector_command = 'carla_data_saver' \
                         f' --config-dir={simulation_config.parent}' \
                         f' --config-name={simulation_config.name}' \
@@ -814,11 +824,30 @@ def collect(command_args, prog, description):
     log.debug(f"Collector command: {collector_command}")
 
     log.info("Data collection started.")
-    exit_code = os.system(collector_command)
+    if args.no_docker:
+        exit_code = os.system(collector_command)
+    else:
+        # setup instance
+        kwargs = dict(runtime="runc")
+        kwargs["image_name"] = args.docker_image
+        manager = ManagementInstance(**kwargs)
+
+        # start instance
+        runner = manager.start_armory_instance(
+            ports=None,
+        )
+
+        exit_code = runner.exec_cmd(collector_command, user=user, expect_sentinel=False)
+        manager.stop_armory_instance(runner)
+
     log.info(f"Output: {output_dir}")
 
     # clean up
-    manager.stop_armory_instance(runner)
+    carla_manager.stop_armory_instance(carla_runner)
+
+    if not args.no_docker:
+        filename_link.unlink()
+
     sys.exit(exit_code)
 
 
@@ -826,8 +855,8 @@ def annotate(command_args, prog, description):
     usage = f"armory annotate [--annotation-format][--categories][--dataset-path][--dataset-id]"
     parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
     _debug(parser)
-
-    host_default_paths = paths.HostDefaultPaths()
+    _docker_image_optional(parser)
+    _no_docker(parser)
 
     parser.add_argument(
         "--annotation-format",
@@ -841,12 +870,6 @@ def annotate(command_args, prog, description):
         default=["Pedestrian", "Vehicle", "TrafficLight"],
         type=str,
         help="Categories used to generate annotation.",
-    )
-    parser.add_argument(
-        "--dataset-path",
-        default=Path(host_default_paths.dataset_dir) / "carla",
-        type=str,
-        help="Path to dataset to annotate.",
     )
     parser.add_argument(
         "--dataset-id",
@@ -863,9 +886,16 @@ def annotate(command_args, prog, description):
         log.error("No dataset identifier provided.")
         sys.exit(1)
 
+    # get dataset dir
+    if args.no_docker:
+        host_default_paths = paths.HostDefaultPaths()
+        dataset_path = Path(host_default_paths.dataset_dir) / "carla" / args.dataset_id
+    else:
+        docker_paths = paths.DockerPaths()
+        dataset_path = Path(docker_paths.dataset_dir) / "carla" / args.dataset_id
+
     # run data saver tool
     categories = str(args.categories).replace(' ', '')
-    dataset_path = Path(args.dataset_path) / args.dataset_id
     annotator_command = 'carla_data_annotator' \
                         f' {args.annotation_format}' \
                         f' --categories={categories}' \
@@ -874,7 +904,22 @@ def annotate(command_args, prog, description):
     log.debug(f"Annotator command: {annotator_command}")
 
     log.info("Data annotation started.")
-    exit_code = os.system(annotator_command)
+    if args.no_docker:
+        exit_code = os.system(annotator_command)
+    else:
+        # setup instance
+        kwargs = dict(runtime="runc")
+        kwargs["image_name"] = args.docker_image
+        manager = ManagementInstance(**kwargs)
+
+        # start instance
+        runner = manager.start_armory_instance(
+            ports=None,
+        )
+
+        exit_code = runner.exec_cmd(annotator_command, user=user, expect_sentinel=False)
+        manager.stop_armory_instance(runner)
+
     log.info("Annotation done.")
 
     sys.exit(exit_code)
