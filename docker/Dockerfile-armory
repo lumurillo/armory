@@ -11,6 +11,12 @@ ARG PIP_NO_CACHE_DIR=1
 #       in the root of the repo.
 COPY ./ /armory-repo
 
+# Install CARLA datagen tools. 
+# TODO: remove this
+RUN ldconfig
+WORKDIR /armory-repo/docker/carla-datagen-toolkit
+RUN LD_LIBRARY_PATH= pip install .
+
 WORKDIR /armory-repo
 
 RUN echo "Updating pip" && \
@@ -22,7 +28,7 @@ RUN echo "Updating pip" && \
     echo "Cleaning up..." && \
     rm -rf /armory-repo/.git
 
-RUN pip install \
+RUN LD_LIBRARY_PATH= pip install \
         git+https://github.com/ifzhang/ByteTrack.git \
         thop \
         lap \
