@@ -746,107 +746,112 @@ def collect(command_args, prog, description):
 
     args = parser.parse_args(command_args)
     armory.logs.update_filters(args.log_level, args.debug)
-
-    # verify config file
-    simulation_config = Path(args.config)
-    if not simulation_config.exists():
-        log.error(f"Simulation config '{simulation_config}' does not exits")
-        sys.exit(1)
-
-    if args.no_docker:
-        host_default_paths = paths.HostDefaultPaths()
-        output_dir = Path(host_default_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
-    else:
-        docker_paths = paths.DockerPaths()
-        output_dir = Path(docker_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
-
-        # create symbolic link to workspace
-        filename_link = Path(os.getcwd()) / simulation_config.name
-        filename_link.symlink_to(simulation_config)
-        simulation_config = Path(docker_paths.cwd) / simulation_config.name
-
-    # setup instance
-    if args.use_gpu:
-        kwargs = dict(runtime="nvidia")
-    else:
-        kwargs = dict(runtime="runc")
-    kwargs["image_name"] = armory.docker.images.IMAGE_MAP["carla-sim"]
-    carla_manager = ManagementInstance(**kwargs)
-
-    # setup env variables
-    extra_env_vars = dict()
-    if args.use_gpu:
-        if args.gpus is not None:
-            extra_env_vars["NVIDIA_VISIBLE_DEVICES"] = args.gpus
     
-    # start instance
-    carla_runner = carla_manager.start_armory_instance(
-        envs=extra_env_vars,
-        ports=None,
-        user=CARLA_USER,
-    )
-
-    # start CARLA server
-    port = SystemRandom().randrange(49152, 65535)
-    carla_command = f'/bin/bash -c "/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port={port} -quality-level=Epic"'
-
-    exit_code = carla_runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
-
-    # wait the server to start
-    carla_runner.docker_container.reload()
-    ip_address = carla_runner.docker_container.attrs['NetworkSettings']['IPAddress']
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    start_time = time.time()
-
-    # here is verified that the CARLA server's port is open
-    while sock.connect_ex((ip_address, port)) != 0:
-        time.sleep(1)
-        log.info(f"Waiting for CARLA server at {ip_address}:{port}.")
-
-        elapsed_time = time.time() - start_time
-        if elapsed_time > CARLA_SERVER_TIMEOUT:
-            log.error(f"Timeout reached when starting CARLA server")
+    try:
+        # verify config file
+        simulation_config = Path(args.config)
+        if not simulation_config.exists():
+            log.error(f"Simulation config '{simulation_config}' does not exits")
             sys.exit(1)
-    
-    log.info("CARLA server started.")
 
-    # run data saver tool
-    tm_port = port + 2
-    collector_command = 'carla_data_saver' \
-                        f' --config-dir={simulation_config.parent}' \
-                        f' --config-name={simulation_config.name}' \
-                        f' context.client_params.host={ip_address}' \
-                        f' context.client_params.port={port}' \
-                        f' context.simulation_params.traffic_manager_port={tm_port}' \
-                        f' hydra.run.dir="{output_dir}"'
-    
-    log.debug(f"Collector command: {collector_command}")
+        if args.no_docker:
+            host_default_paths = paths.HostDefaultPaths()
+            output_dir = Path(host_default_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
+        else:
+            docker_paths = paths.DockerPaths()
+            output_dir = Path(docker_paths.dataset_dir) / f"carla/{uuid.uuid4()}"
 
-    log.info("Data collection started.")
-    if args.no_docker:
-        exit_code = os.system(collector_command)
-    else:
+            # create symbolic link to workspace
+            filename_link = Path(os.getcwd()) / simulation_config.name
+            filename_link.symlink_to(simulation_config)
+            simulation_config = Path(docker_paths.cwd) / simulation_config.name
+
         # setup instance
-        kwargs = dict(runtime="runc")
-        kwargs["image_name"] = args.docker_image
-        manager = ManagementInstance(**kwargs)
+        if args.use_gpu:
+            kwargs = dict(runtime="nvidia")
+        else:
+            kwargs = dict(runtime="runc")
+        kwargs["image_name"] = armory.docker.images.IMAGE_MAP["carla-sim"]
+        carla_manager = ManagementInstance(**kwargs)
 
+        # setup env variables
+        extra_env_vars = dict()
+        if args.use_gpu:
+            if args.gpus is not None:
+                extra_env_vars["NVIDIA_VISIBLE_DEVICES"] = args.gpus
+        
         # start instance
-        runner = manager.start_armory_instance(
+        carla_runner = carla_manager.start_armory_instance(
+            envs=extra_env_vars,
             ports=None,
+            user=CARLA_USER,
         )
 
-        exit_code = runner.exec_cmd(collector_command, user=user, expect_sentinel=False)
-        manager.stop_armory_instance(runner)
+        # start CARLA server
+        port = SystemRandom().randrange(49152, 65535)
+        carla_command = f'/bin/bash -c "/home/carla/CarlaUE4.sh -RenderOffScreen -carla-port={port} -quality-level=Epic"'
 
-    log.info(f"Output: {output_dir}")
+        exit_code = carla_runner.exec_cmd(carla_command, user=CARLA_USER, expect_sentinel=False, detach=True)
 
-    # clean up
-    carla_manager.stop_armory_instance(carla_runner)
+        # wait the server to start
+        carla_runner.docker_container.reload()
+        ip_address = carla_runner.docker_container.attrs['NetworkSettings']['IPAddress']
 
-    if not args.no_docker:
-        filename_link.unlink()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        start_time = time.time()
+
+        # here is verified that the CARLA server's port is open
+        while sock.connect_ex((ip_address, port)) != 0:
+            time.sleep(1)
+            log.info(f"Waiting for CARLA server at {ip_address}:{port}.")
+
+            elapsed_time = time.time() - start_time
+            if elapsed_time > CARLA_SERVER_TIMEOUT:
+                log.error(f"Timeout reached when starting CARLA server")
+                sys.exit(1)
+        
+        log.info("CARLA server started.")
+
+        # run data saver tool
+        tm_port = port + 2
+        collector_command = 'carla_data_saver' \
+                            f' --config-dir={simulation_config.parent}' \
+                            f' --config-name={simulation_config.name}' \
+                            f' context.client_params.host={ip_address}' \
+                            f' context.client_params.port={port}' \
+                            f' context.simulation_params.traffic_manager_port={tm_port}' \
+                            f' hydra.run.dir="{output_dir}"'
+        
+        log.debug(f"Collector command: {collector_command}")
+
+        log.info("Data collection started.")
+        if args.no_docker:
+            exit_code = os.system(collector_command)
+        else:
+            # setup instance
+            kwargs = dict(runtime="runc")
+            kwargs["image_name"] = args.docker_image
+            manager = ManagementInstance(**kwargs)
+
+            # start instance
+            runner = manager.start_armory_instance(
+                ports=None,
+            )
+
+            exit_code = runner.exec_cmd(collector_command, expect_sentinel=False)
+            manager.stop_armory_instance(runner)
+
+        log.info(f"Output: {output_dir}")
+    
+    except Exception as e:
+        log.error(f"Error while collecting data: {e}")
+    finally:
+        # clean up
+        if carla_manager and carla_runner:
+            carla_manager.stop_armory_instance(carla_runner)
+
+        if not args.no_docker:
+            filename_link.unlink()
 
     sys.exit(exit_code)
 
@@ -917,7 +922,7 @@ def annotate(command_args, prog, description):
             ports=None,
         )
 
-        exit_code = runner.exec_cmd(annotator_command, user=user, expect_sentinel=False)
+        exit_code = runner.exec_cmd(annotator_command, expect_sentinel=False)
         manager.stop_armory_instance(runner)
 
     log.info("Annotation done.")
