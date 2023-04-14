@@ -941,15 +941,9 @@ COMMANDS = {
     "configure": (configure, "set up armory and dataset paths"),
     "launch": (launch, "launch a given docker container in armory"),
     "exec": (exec, "run a single exec command in the container"),
+    "collect": (collect, "run CARLA data collector tool"),
+    "annotate": (annotate, "run CARLA data annotator tool"),
 }
-
-# add CARLA commands if its tools are installed
-CARLA_DATAGEN_TOOLS_REQ_VERSION = ('3', '8')
-python_version = platform.python_version_tuple()
-
-if python_version[0] == CARLA_DATAGEN_TOOLS_REQ_VERSION[0] and python_version[1] == CARLA_DATAGEN_TOOLS_REQ_VERSION[1]:
-    COMMANDS["collect"] = (collect, "run CARLA data collector tool")
-    COMMANDS["annotate"] = (annotate, "run CARLA data annotator tool")
 
 
 def usage():

@@ -130,7 +130,7 @@ jupyter = [
 ]
 
 carla = [
-    'carla_datagen_toolkit @ git+https://github.com/intel-sandbox/carla-datagen-toolkit.git@35f866ca885c7f636f66bf38627518173a229404 ; python_version == "3.8"',
+    "carla_datagen_toolkit @ git+https://github.com/intel-sandbox/carla-datagen-toolkit.git@35f866ca885c7f636f66bf38627518173a229404",
 ]
 
 all = [
