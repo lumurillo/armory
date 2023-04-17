@@ -728,7 +728,7 @@ def exec(command_args, prog, description):
 CARLA_USER = "carla"
 CARLA_SERVER_TIMEOUT = 20
 
-def collect(command_args, prog, description):
+def carla_collect(command_args, prog, description):
     usage = f"armory collect [--config]"
     parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
     _debug(parser)
@@ -856,7 +856,7 @@ def collect(command_args, prog, description):
     sys.exit(exit_code)
 
 
-def annotate(command_args, prog, description):
+def carla_annotate(command_args, prog, description):
     usage = f"armory annotate [--annotation-format][--categories][--dataset-path][--dataset-id]"
     parser = argparse.ArgumentParser(prog=prog, description=description, usage=usage)
     _debug(parser)
@@ -941,8 +941,8 @@ COMMANDS = {
     "configure": (configure, "set up armory and dataset paths"),
     "launch": (launch, "launch a given docker container in armory"),
     "exec": (exec, "run a single exec command in the container"),
-    "collect": (collect, "run CARLA data collector tool"),
-    "annotate": (annotate, "run CARLA data annotator tool"),
+    "carla_collect": (carla_collect, "run CARLA data collector tool"),
+    "carla_annotate": (carla_annotate, "run CARLA data annotator tool"),
 }
 
 
