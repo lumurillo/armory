@@ -11,11 +11,11 @@ ARG PIP_NO_CACHE_DIR=1
 #       in the root of the repo.
 COPY ./ /armory-repo
 
-# Install CARLA datagen tools. 
-# TODO: remove this
-RUN ldconfig
-WORKDIR /armory-repo/docker/carla-datagen-toolkit
-RUN LD_LIBRARY_PATH= pip install .
+# carla PythonAPI
+# NOTE: CARLA distributes python packages till python 3.8, so for versions
+# of python 3.9+, this package needs to be build manually. For install it
+# manually, the wheel file is expected in the Armory's repo root directory.
+RUN if [ -f /armory-repo/*.whl ]; then pip install $(find /armory-repo/*.whl) ; fi
 
 WORKDIR /armory-repo
 
@@ -28,7 +28,7 @@ RUN echo "Updating pip" && \
     echo "Cleaning up..." && \
     rm -rf /armory-repo/.git
 
-RUN LD_LIBRARY_PATH= pip install \
+RUN pip install \
         git+https://github.com/ifzhang/ByteTrack.git \
         thop \
         lap \
